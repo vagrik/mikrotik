@@ -72,10 +72,7 @@ jobs:
           test -f vendor/autoload.php
           test -f composer.lock
           php -r '$p=require "vendor/composer/installed.php"; $v=null; foreach($p["versions"] as $n=>$m){if($n==="laravel/framework"){$v=$m["pretty_version"]??null;}} if($v!=="v13.33.0" && $v!=="13.33.0"){fwrite(STDERR,"Unexpected Laravel version: ".var_export($v,true)."\n"); exit(1);} echo "Laravel ".$v." verified\n";'
-          if grep -Rqs '"laravel/tinker"' vendor/composer/installed.json vendor/composer/installed.php 2>/dev/null; then
-            echo "laravel/tinker must not be present" >&2
-            exit 1
-          fi
+          php -r '$p=require "vendor/composer/installed.php"; if(isset($p["versions"]["laravel/tinker"])){fwrite(STDERR,"laravel/tinker is installed but must not be present\n"); exit(1);} echo "No laravel/tinker package installed\n";'
 
       - name: Create integrity manifest
         working-directory: /tmp/axamil-deps
