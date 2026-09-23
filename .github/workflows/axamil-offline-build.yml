@@ -1,0 +1,98 @@
+name: AXAMIL Offline Vendor Build
+
+on:
+  push:
+    branches:
+      - axamil-offline-build-20260923
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  build-vendor:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, xml, curl, zip, intl, bcmath, pdo, pdo_pgsql, openssl, tokenizer, ctype, fileinfo
+          tools: composer:v2
+
+      - name: Prepare minimal AXAMIL Composer project
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/axamil-deps
+          mkdir -p /tmp/axamil-deps/app /tmp/axamil-deps/database/factories /tmp/axamil-deps/database/seeders
+          cat > /tmp/axamil-deps/composer.json <<'JSON'
+          {
+            "name": "axamil/core",
+            "type": "project",
+            "description": "AXAMIL Core - modular datacenter, commerce and software platform",
+            "license": "proprietary",
+            "require": {
+              "php": ">=8.3 <8.6",
+              "laravel/framework": "13.33.0"
+            },
+            "autoload": {
+              "psr-4": {
+                "App\\": "app/",
+                "Database\\Factories\\": "database/factories/",
+                "Database\\Seeders\\": "database/seeders/"
+              }
+            },
+            "config": {
+              "optimize-autoloader": true,
+              "preferred-install": "dist",
+              "sort-packages": true,
+              "platform-check": true,
+              "platform": {
+                "php": "8.3.0"
+              }
+            },
+            "minimum-stability": "stable",
+            "prefer-stable": true
+          }
+          JSON
+
+      - name: Resolve and install production dependencies
+        working-directory: /tmp/axamil-deps
+        run: |
+          set -euo pipefail
+          composer update --no-dev --prefer-dist --no-interaction --no-progress --no-scripts --optimize-autoloader
+          composer check-platform-reqs --no-dev
+          test -f vendor/autoload.php
+          test -f composer.lock
+          php -r '$p=require "vendor/composer/installed.php"; $v=null; foreach($p["versions"] as $n=>$m){if($n==="laravel/framework"){$v=$m["pretty_version"]??null;}} if($v!=="v13.33.0" && $v!=="13.33.0"){fwrite(STDERR,"Unexpected Laravel version: ".var_export($v,true)."\n"); exit(1);} echo "Laravel ".$v." verified\n";'
+          if grep -Rqs '"laravel/tinker"' vendor/composer/installed.json vendor/composer/installed.php 2>/dev/null; then
+            echo "laravel/tinker must not be present" >&2
+            exit 1
+          fi
+
+      - name: Create integrity manifest
+        working-directory: /tmp/axamil-deps
+        run: |
+          set -euo pipefail
+          find vendor -type f -print0 | sort -z | xargs -0 sha256sum > vendor.sha256
+          sha256sum composer.json composer.lock >> vendor.sha256
+
+      - name: Upload bundled dependencies
+        uses: actions/upload-artifact@v4
+        with:
+          name: axamil-laravel-13.33.0-vendor-php83
+          path: |
+            /tmp/axamil-deps/composer.json
+            /tmp/axamil-deps/composer.lock
+            /tmp/axamil-deps/vendor
+            /tmp/axamil-deps/vendor.sha256
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 6
